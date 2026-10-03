@@ -1,11 +1,12 @@
 //! Minimal support for implementing Slang COM interfaces in Rust.
 
+use std::cell::RefCell;
 use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{NonNull, null_mut};
 use std::sync::atomic::{AtomicU32, Ordering, fence};
 
-use crate::{Blob, IUnknown, Interface, UUID, sys, uuid};
+use crate::{Blob, FileSystemImpl, IUnknown, Interface, UUID, sys, uuid};
 
 const SLANG_OK: sys::SlangResult = 0;
 const SLANG_FAIL: sys::SlangResult = 0x80004005_u32 as i32;
@@ -123,19 +124,19 @@ unsafe extern "C" fn blob_buffer_size(this: *mut c_void) -> usize {
 	unsafe { header::<BlobData>(this).value.0.len() }
 }
 
-/// A file system whose `loadFile` is forwarded to a Rust closure.
-pub(crate) struct LambdaFileSystem(pub(crate) Box<dyn Fn(&str) -> Option<Blob>>);
+/// Exposes a Rust [`FileSystemImpl`] to Slang as an `ISlangFileSystem`.
+pub(crate) struct RustFileSystem<T: FileSystemImpl>(pub(crate) RefCell<T>);
 
-unsafe impl Object for LambdaFileSystem {
+unsafe impl<T: FileSystemImpl> Object for RustFileSystem<T> {
 	type Vtable = sys::IFileSystemVtable;
 	const VTABLE: &'static sys::IFileSystemVtable = &sys::IFileSystemVtable {
 		_base: castable_vtable::<Self>(),
-		loadFile: lambda_load_file,
+		loadFile: file_system_load_file::<T>,
 	};
 	const IIDS: &'static [UUID] = &[ICASTABLE_IID, crate::FileSystem::IID];
 }
 
-unsafe extern "C" fn lambda_load_file(this: *mut c_void, path: *const c_char, out_blob: *mut *mut sys::ISlangBlob) -> sys::SlangResult {
+unsafe extern "C" fn file_system_load_file<T: FileSystemImpl>(this: *mut c_void, path: *const c_char, out_blob: *mut *mut sys::ISlangBlob) -> sys::SlangResult {
 	unsafe {
 		*out_blob = null_mut();
 
@@ -143,9 +144,13 @@ unsafe extern "C" fn lambda_load_file(this: *mut c_void, path: *const c_char, ou
 			return SLANG_E_NOT_FOUND;
 		};
 
+		// Fails instead of panicking if Slang re-enters loadFile from within load_file.
+		let Ok(mut file_system) = header::<RustFileSystem<T>>(this).value.0.try_borrow_mut() else {
+			return SLANG_FAIL;
+		};
+
 		// Unwinding across the FFI boundary would abort, so report panics as failures.
-		let load_file = &header::<LambdaFileSystem>(this).value.0;
-		match catch_unwind(AssertUnwindSafe(|| load_file(path))) {
+		match catch_unwind(AssertUnwindSafe(|| file_system.load_file(path))) {
 			Ok(Some(blob)) => {
 				// Ownership of our reference is transferred to the caller.
 				*out_blob = blob.as_raw();

@@ -516,17 +516,45 @@ unsafe impl Interface for FileSystem {
 	const IID: UUID = uuid(0x003a09fc_3a4d_4ba0_ad601fd863a915ab);
 }
 
-impl FileSystem {
-	/// Creates a file system that loads files through `load_file`.
+/// A file system implemented in Rust that Slang can load files through.
+///
+/// Implement this for your own type and wrap it with [`FileSystem::new`],
+/// or use [`FileSystem::from_fn`] for a closure.
+///
+/// Implementations must be `'static` because Slang keeps its own reference to
+/// the file system for as long as any session using it is alive. To share state
+/// with the rest of your program, move it in or use `Rc<RefCell<_>>`.
+pub trait FileSystemImpl: 'static {
+	/// Returns the contents of the file at `path`, or `None` if it doesn't exist.
 	///
-	/// `load_file` receives the path Slang wants to read and returns its contents,
-	/// or `None` if the file doesn't exist. Slang also uses this to probe search
-	/// paths, so returning `None` for unknown paths is expected.
-	pub fn new<F>(load_file: F) -> Self
+	/// Slang also calls this to probe search paths, so returning `None` for
+	/// unknown paths is expected.
+	fn load_file(&mut self, path: &str) -> Option<Blob>;
+}
+
+impl<F> FileSystemImpl for F
+where
+	F: FnMut(&str) -> Option<Blob> + 'static,
+{
+	fn load_file(&mut self, path: &str) -> Option<Blob> {
+		self(path)
+	}
+}
+
+impl FileSystem {
+	/// Creates a Slang file system backed by `file_system`.
+	pub fn new(file_system: impl FileSystemImpl) -> Self {
+		FileSystem(com::new_object(com::RustFileSystem(std::cell::RefCell::new(file_system))))
+	}
+
+	/// Creates a Slang file system that loads files through a closure.
+	///
+	/// See [`FileSystemImpl::load_file`] for what `load_file` should return.
+	pub fn from_fn<F>(load_file: F) -> Self
 	where
-		F: Fn(&str) -> Option<Blob> + 'static,
+		F: FnMut(&str) -> Option<Blob> + 'static,
 	{
-		FileSystem(com::new_object(com::LambdaFileSystem(Box::new(load_file))))
+		Self::new(load_file)
 	}
 
 	pub fn load_file(&self, path: &str) -> Result<Blob> {
