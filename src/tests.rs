@@ -1,6 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
-
-use crate as slang;
+use crate::{self as slang, FileSystem, FileSystemImpl};
 
 #[test]
 fn compile() {
@@ -19,11 +17,15 @@ fn compile() {
 
 	let targets = [target_desc];
 	let search_paths = [search_path.as_ptr()];
-	let include_handler = RefCell::new(|path: &str| {
-		std::fs::read(path).ok().map(slang::Blob::from)
-	});
-	let file_system = slang::FileSystem::from_fn(move |path| include_handler.borrow()(path));
+	struct SlangFileSystem {
 
+	}
+	impl FileSystemImpl for SlangFileSystem {
+		fn load_file(&mut self, path: &str) -> Option<crate::Blob> {
+			std::fs::read(path).ok().map(slang::Blob::from)
+		}
+	}
+	let file_system = FileSystem::new(SlangFileSystem{});
 	let session_desc = slang::SessionDesc::default()
 		.targets(&targets)
 		.search_paths(&search_paths)
