@@ -1,5 +1,6 @@
 //! Rust bindings for the Slang shader language compiler
 
+mod com;
 pub mod reflection;
 
 #[cfg(test)]
@@ -167,6 +168,30 @@ impl Blob {
 
 	pub fn as_str(&self) -> std::result::Result<&str, std::str::Utf8Error> {
 		std::str::from_utf8(self.as_slice())
+	}
+}
+
+impl From<Vec<u8>> for Blob {
+	fn from(data: Vec<u8>) -> Self {
+		Blob(com::new_object(com::BlobData(data.into_boxed_slice())))
+	}
+}
+
+impl From<&[u8]> for Blob {
+	fn from(data: &[u8]) -> Self {
+		Blob::from(data.to_vec())
+	}
+}
+
+impl From<String> for Blob {
+	fn from(data: String) -> Self {
+		Blob::from(data.into_bytes())
+	}
+}
+
+impl From<&str> for Blob {
+	fn from(data: &str) -> Self {
+		Blob::from(data.as_bytes())
 	}
 }
 
@@ -481,6 +506,43 @@ impl ComponentType {
 	}
 }
 
+
+#[repr(transparent)]
+#[derive(Clone)]
+pub struct FileSystem(IUnknown);
+
+unsafe impl Interface for FileSystem {
+	type Vtable = sys::IFileSystemVtable;
+	const IID: UUID = uuid(0x003a09fc_3a4d_4ba0_ad601fd863a915ab);
+}
+
+impl FileSystem {
+	/// Creates a file system that loads files through `load_file`.
+	///
+	/// `load_file` receives the path Slang wants to read and returns its contents,
+	/// or `None` if the file doesn't exist. Slang also uses this to probe search
+	/// paths, so returning `None` for unknown paths is expected.
+	pub fn new<F>(load_file: F) -> Self
+	where
+		F: Fn(&str) -> Option<Blob> + 'static,
+	{
+		FileSystem(com::new_object(com::LambdaFileSystem(Box::new(load_file))))
+	}
+
+	pub fn load_file(&self, path: &str) -> Result<Blob> {
+		let mut out_blob = null_mut();
+		let path = CString::new(path).unwrap();
+		let result = vcall!(self, loadFile(path.as_ptr(), &mut out_blob));
+
+		if !succeeded(result) {
+			Err(Error::Code(result))
+		} else {
+			// loadFile hands back an owned reference, so no addRef is needed.
+			Ok(Blob(IUnknown(std::ptr::NonNull::new(out_blob as *mut _).unwrap())))
+		}
+	}
+}
+
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct EntryPoint(IUnknown);
@@ -679,6 +741,11 @@ impl<'a> SessionDesc<'a> {
 	pub fn options(mut self, options: &'a CompilerOptions) -> Self {
 		self.inner.compilerOptionEntries = options.options.as_ptr() as _;
 		self.inner.compilerOptionEntryCount = options.options.len() as _;
+		self
+	}
+
+	pub fn file_system(mut self, file_system: &'a FileSystem) -> Self {
+		self.inner.fileSystem = unsafe { file_system.as_raw() };
 		self
 	}
 }

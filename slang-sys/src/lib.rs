@@ -137,3 +137,45 @@ pub struct IModuleVtable {
 	pub getDependencyFilePath: unsafe extern "C" fn(*mut c_void, index: SlangInt32) -> *const c_char,
 	pub getModuleReflection: unsafe extern "C" fn(*mut c_void) -> *mut slang_DeclReflection,
 }
+
+#[repr(C)]
+pub struct IFileSystemVtable {
+	pub _base: ICastableVtable,
+
+	pub loadFile: unsafe extern "C" fn(*mut c_void, path: *const c_char, outBlob: *mut *mut ISlangBlob) -> SlangResult,
+}
+
+#[repr(C)]
+pub struct IFileSystemExtVtable {
+	pub _base: IFileSystemVtable,
+
+	pub getFileUniqueIdentity: unsafe extern "C" fn(*mut c_void, path: *const c_char, outUniqueIdentity: *mut *mut ISlangBlob) -> SlangResult,
+	pub calcCombinedPath: unsafe extern "C" fn(*mut c_void, fromPathType: SlangPathType, fromPath: *const c_char, path: *const c_char, pathOut: *mut *mut ISlangBlob) -> SlangResult,
+	pub getPathType: unsafe extern "C" fn(*mut c_void, path: *const c_char, pathTypeOut: *mut SlangPathType) -> SlangResult,
+	pub getPath: unsafe extern "C" fn(*mut c_void, kind: PathKind, path: *const c_char, outPath: *mut *mut ISlangBlob) -> SlangResult,
+	pub clearCache: unsafe extern "C" fn(*mut c_void),
+	pub enumeratePathContents: unsafe extern "C" fn(*mut c_void, path: *const c_char, callback: FileSystemContentsCallBack, userData: *mut c_void) -> SlangResult,
+	pub getOSPathKind: unsafe extern "C" fn(*mut c_void) -> OSPathKind,
+}
+
+#[repr(C)]
+pub struct IMutableFileSystemVtable {
+	pub _base: IFileSystemExtVtable,
+
+	pub saveFile: unsafe extern "C" fn(*mut c_void, path: *const c_char, data: *const c_void, size: usize) -> SlangResult,
+	pub saveFileBlob: unsafe extern "C" fn(*mut c_void, path: *const c_char, dataBlob: *mut ISlangBlob) -> SlangResult,
+	pub remove: unsafe extern "C" fn(*mut c_void, path: *const c_char) -> SlangResult,
+	pub createDirectory: unsafe extern "C" fn(*mut c_void, path: *const c_char) -> SlangResult,
+}
+
+#[repr(C)]
+pub struct IWriterVtable {
+	pub _base: ISlangUnknown__bindgen_vtable,
+
+	pub beginAppendBuffer: unsafe extern "C" fn(*mut c_void, maxNumChars: usize) -> *mut c_char,
+	pub endAppendBuffer: unsafe extern "C" fn(*mut c_void, buffer: *mut c_char, numChars: usize) -> SlangResult,
+	pub write: unsafe extern "C" fn(*mut c_void, chars: *const c_char, numChars: usize) -> SlangResult,
+	pub flush: unsafe extern "C" fn(*mut c_void),
+	pub isConsole: unsafe extern "C" fn(*mut c_void) -> bool,
+	pub setMode: unsafe extern "C" fn(*mut c_void, mode: SlangWriterMode) -> SlangResult,
+}

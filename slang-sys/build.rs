@@ -45,6 +45,11 @@ fn main() {
 		.allowlist_function("spComputeStringHash")
 		.allowlist_function("slang_.*")
 		.allowlist_type("slang.*")
+		.allowlist_type("SlangPathType")
+		.allowlist_type("SlangWriterMode")
+		.allowlist_type("PathKind")
+		.allowlist_type("OSPathKind")
+		.allowlist_type("FileSystemContentsCallBack")
 		.allowlist_var("SLANG_.*")
 		.with_codegen_config(
 			bindgen::CodegenConfig::FUNCTIONS
